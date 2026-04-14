@@ -369,6 +369,11 @@ async function loadMathJax() {
                 inlineMath: [["$", "$"]],
                 displayMath: [["$$", "$$"]],
                 processEscapes: true
+            },
+            output: {
+                linebreaks: {
+                    inline: false
+                }
             }
         };
 
