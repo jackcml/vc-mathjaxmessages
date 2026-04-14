@@ -1,0 +1,45 @@
+.vc-mathjax-inline,
+.vc-mathjax-block {
+    color: inherit;
+}
+
+.vc-mathjax-inline {
+    display: inline-flex;
+    align-items: center;
+    vertical-align: middle;
+    max-width: 100%;
+}
+
+.vc-mathjax-block {
+    display: block;
+    max-width: 100%;
+    overflow: auto hidden;
+    margin: 0.35em 0;
+}
+
+.vc-mathjax-inline > mjx-container,
+.vc-mathjax-block > mjx-container {
+    margin: 0;
+}
+
+.vc-mathjax-inline svg,
+.vc-mathjax-block svg {
+    display: block;
+    height: auto;
+    max-width: 100%;
+}
+
+.vc-mathjax-code-inline,
+.vc-mathjax-code-block {
+    color: inherit;
+    white-space: pre-wrap;
+}
+
+.vc-mathjax-code-inline {
+    display: inline;
+}
+
+.vc-mathjax-code-block {
+    display: block;
+    max-width: 100%;
+}
