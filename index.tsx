@@ -7,20 +7,19 @@
 import { updateMessage } from "@api/MessageUpdater";
 import { definePluginSettings } from "@api/Settings";
 import definePlugin, { OptionType } from "@utils/types";
+import { findCssClassesLazy } from "@webpack";
 import { Parser, React, SelectedChannelStore, useEffect, useState } from "@webpack/common";
 import { ReactElement, ReactNode } from "react";
 
 import managedStyle from "./style.css?managed";
 
 type ParserMethodName = typeof PARSER_METHOD_NAMES[number];
+type ParserCodeRuleName = typeof PARSER_CODE_RULES[number]["name"];
 type ParserMethod = (content: string, inline?: boolean, state?: Record<string, any>) => ReactNode[];
+type ParserRuleReact = (node: Record<string, any>, output: unknown, state: Record<string, any>) => ReactNode;
 type MathSegment =
     | { type: "text"; text: string; }
     | { type: "math"; display: boolean; raw: string; tex: string; };
-type TransformContext = {
-    inCode: boolean;
-    keyPrefix: string;
-};
 type MathJaxGlobal = {
     startup?: {
         [key: string]: any;
@@ -39,9 +38,16 @@ declare global {
 }
 
 const PARSER_METHOD_NAMES = ["parse", "parseInlineReply", "parseForumPostMostRecentMessage"] as const;
+const PARSER_CODE_RULES = [
+    { name: "codeBlock", display: true },
+    { name: "inlineCode", display: false },
+    { name: "code", display: false }
+] as const;
 const MATHJAX_SCRIPT_ID = "vc-mathjax-loader";
 const MESSAGE_CONTENT_ID_PREFIX = "message-content-";
+const CodeContainerClasses = findCssClassesLazy("markup", "codeContainer");
 const originalParserMethods = new Map<ParserMethodName, ParserMethod>();
+const originalCodeRuleReacts = new Map<ParserCodeRuleName, ParserRuleReact>();
 const svgMarkupCache = new Map<string, Promise<string | null>>();
 
 let mathJaxLoadPromise: Promise<MathJaxRuntime | null> | null = null;
@@ -225,35 +231,59 @@ function extractPlainText(node: ReactNode): string | null {
     return null;
 }
 
-function transformCodeElement(element: ReactElement, keyPrefix: string) {
-    const text = extractPlainText((element.props as { children?: ReactNode; }).children);
-    if (text == null) return null;
-
+function renderCodeEnvironment(text: string, display: boolean, keyPrefix: string) {
     const segments = tokenizeMath(text);
     if (!segments?.some(segment => segment.type === "math")) {
         return null;
     }
 
-    if (segments.some(segment => segment.type === "text" && /\S/.test(segment.text))) {
-        return null;
+    const content = createMathNodes(segments, `${keyPrefix}.code`);
+
+    if (display) {
+        return (
+            <div className={CodeContainerClasses.markup}>
+                <pre className={CodeContainerClasses.codeContainer}>
+                    <code className="vc-mathjax-code-block">
+                        {content}
+                    </code>
+                </pre>
+            </div>
+        );
     }
 
-    const isBlock = element.type === "pre" || segments.some(segment => segment.type === "math" && segment.display);
-
     return (
-        <span className={isBlock ? "vc-mathjax-code-block" : "vc-mathjax-code-inline"}>
-            {createMathNodes(segments, `${keyPrefix}.code`)}
+        <span className={CodeContainerClasses.markup}>
+            <code className="inline vc-mathjax-code-inline">
+                {content}
+            </code>
         </span>
     );
 }
 
-function transformNode(node: ReactNode, context: TransformContext): [ReactNode | ReactNode[], boolean] {
+function extractCodeRuleText(node: Record<string, any>) {
+    for (const key of ["content", "text", "literal", "source", "value"] as const) {
+        if (typeof node?.[key] === "string") {
+            return node[key];
+        }
+    }
+
+    return extractPlainText(node?.children);
+}
+
+function transformCodeElement(element: ReactElement, keyPrefix: string) {
+    const text = extractPlainText((element.props as { children?: ReactNode; }).children);
+    if (text == null) return null;
+
+    return renderCodeEnvironment(text, element.type === "pre", keyPrefix);
+}
+
+function transformNode(node: ReactNode, keyPrefix: string): [ReactNode | ReactNode[], boolean] {
     if (node == null || typeof node === "boolean" || typeof node === "number") {
         return [node, false];
     }
 
     if (typeof node === "string") {
-        if (context.inCode || settings.store.requireCodeBlocks) {
+        if (settings.store.requireCodeBlocks) {
             return [node, false];
         }
 
@@ -262,7 +292,7 @@ function transformNode(node: ReactNode, context: TransformContext): [ReactNode |
             return [node, false];
         }
 
-        return [createMathNodes(segments, context.keyPrefix), true];
+        return [createMathNodes(segments, keyPrefix), true];
     }
 
     if (Array.isArray(node)) {
@@ -270,10 +300,7 @@ function transformNode(node: ReactNode, context: TransformContext): [ReactNode |
         const nextChildren: ReactNode[] = [];
 
         node.forEach((child, index) => {
-            const [nextChild, childChanged] = transformNode(child, {
-                ...context,
-                keyPrefix: `${context.keyPrefix}.${index}`
-            });
+            const [nextChild, childChanged] = transformNode(child, `${keyPrefix}.${index}`);
 
             changed ||= childChanged;
 
@@ -293,7 +320,7 @@ function transformNode(node: ReactNode, context: TransformContext): [ReactNode |
 
     const isCodeElement = typeof node.type === "string" && (node.type === "code" || node.type === "pre");
     if (isCodeElement) {
-        const transformed = transformCodeElement(node, context.keyPrefix);
+        const transformed = transformCodeElement(node, keyPrefix);
         return transformed ? [transformed, true] : [node, false];
     }
 
@@ -302,10 +329,7 @@ function transformNode(node: ReactNode, context: TransformContext): [ReactNode |
         return [node, false];
     }
 
-    const [nextChildren, changed] = transformNode(props.children, {
-        inCode: context.inCode,
-        keyPrefix: `${context.keyPrefix}.children`
-    });
+    const [nextChildren, changed] = transformNode(props.children, `${keyPrefix}.children`);
 
     if (!changed) {
         return [node, false];
@@ -326,13 +350,29 @@ function wrapParserMethod(methodName: ParserMethodName) {
             return parsed;
         }
 
-        const [transformed] = transformNode(parsed, {
-            inCode: false,
-            keyPrefix: methodName
-        });
+        const [transformed] = transformNode(parsed, methodName);
 
         return Array.isArray(transformed) ? transformed : [transformed];
     }) as ParserMethod;
+}
+
+function wrapCodeRule(ruleName: ParserCodeRuleName, display: boolean) {
+    if (originalCodeRuleReacts.has(ruleName)) return;
+
+    const rule = Parser.defaultRules[ruleName];
+    if (typeof rule?.react !== "function") return;
+
+    const originalReact = rule.react as ParserRuleReact;
+    originalCodeRuleReacts.set(ruleName, originalReact);
+
+    rule.react = ((node: Record<string, any>, output: unknown, state: Record<string, any>) => {
+        const text = extractCodeRuleText(node);
+        const transformed = typeof text === "string"
+            ? renderCodeEnvironment(text, display, `${ruleName}.${state?.key ?? "0"}`)
+            : null;
+
+        return transformed ?? originalReact.call(rule, node, output, state);
+    }) as ParserRuleReact;
 }
 
 function restoreParserMethods() {
@@ -341,6 +381,15 @@ function restoreParserMethods() {
     }
 
     originalParserMethods.clear();
+
+    for (const [ruleName, originalReact] of originalCodeRuleReacts) {
+        const rule = Parser.defaultRules[ruleName];
+        if (rule) {
+            rule.react = originalReact;
+        }
+    }
+
+    originalCodeRuleReacts.clear();
 }
 
 async function loadMathJax() {
@@ -499,6 +548,10 @@ export default definePlugin({
     start() {
         for (const methodName of PARSER_METHOD_NAMES) {
             wrapParserMethod(methodName);
+        }
+
+        for (const { name, display } of PARSER_CODE_RULES) {
+            wrapCodeRule(name, display);
         }
 
         rerenderVisibleMessages();
