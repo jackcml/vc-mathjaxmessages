@@ -412,7 +412,7 @@ async function loadMathJax() {
                 typeset: false
             },
             svg: {
-                fontCache: "global"
+                fontCache: "local"
             },
             tex: {
                 inlineMath: [["$", "$"]],
