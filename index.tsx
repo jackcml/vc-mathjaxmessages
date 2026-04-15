@@ -546,6 +546,9 @@ export default definePlugin({
     settings,
 
     start() {
+        // Attempt to preload before encountering math
+        requestIdleCallback(() => void loadMathJax());
+
         for (const methodName of PARSER_METHOD_NAMES) {
             wrapParserMethod(methodName);
         }
