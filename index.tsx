@@ -20,6 +20,12 @@ type ParserRuleReact = (node: Record<string, any>, output: unknown, state: Recor
 type MathSegment =
     | { type: "text"; text: string; }
     | { type: "math"; display: boolean; raw: string; tex: string; };
+type MathDelimiter = {
+    open: "$" | "$$" | "\\(" | "\\[";
+    close: "$" | "$$" | "\\)" | "\\]";
+    allowNewlines: boolean;
+    display: boolean;
+};
 type MathJaxGlobal = {
     startup?: {
         [key: string]: any;
@@ -52,6 +58,12 @@ const svgMarkupCache = new Map<string, Promise<string | null>>();
 
 let mathJaxLoadPromise: Promise<MathJaxRuntime | null> | null = null;
 let mathJaxScriptFailed = false;
+const MATH_DELIMITERS: MathDelimiter[] = [
+    { open: "$$", close: "$$", allowNewlines: true, display: true },
+    { open: "$", close: "$", allowNewlines: false, display: false },
+    { open: "\\[", close: "\\]", allowNewlines: true, display: true },
+    { open: "\\(", close: "\\)", allowNewlines: false, display: false }
+];
 
 const settings = definePluginSettings({
     requireCodeBlocks: {
@@ -90,21 +102,23 @@ function isEscaped(text: string, index: number) {
 
 function findNextDelimiter(text: string, start: number) {
     for (let cursor = start; cursor < text.length; cursor++) {
-        if (text[cursor] === "$" && !isEscaped(text, cursor)) {
-            return cursor;
+        for (const delimiter of MATH_DELIMITERS) {
+            if (text.startsWith(delimiter.open, cursor) && !isEscaped(text, cursor)) {
+                return { index: cursor, delimiter };
+            }
         }
     }
 
-    return -1;
+    return null;
 }
 
-function findClosingDelimiter(text: string, start: number, delimiter: "$" | "$$", allowNewlines: boolean) {
+function findClosingDelimiter(text: string, start: number, delimiter: MathDelimiter) {
     for (let cursor = start; cursor < text.length; cursor++) {
-        if (!allowNewlines && text[cursor] === "\n") {
+        if (!delimiter.allowNewlines && text[cursor] === "\n") {
             return -1;
         }
 
-        if (!text.startsWith(delimiter, cursor) || isEscaped(text, cursor)) {
+        if (!text.startsWith(delimiter.close, cursor) || isEscaped(text, cursor)) {
             continue;
         }
 
@@ -121,12 +135,12 @@ function tokenizeMath(text: string): MathSegment[] | null {
     const segments: MathSegment[] = [];
 
     while (searchIndex < text.length) {
-        const openingIndex = findNextDelimiter(text, searchIndex);
-        if (openingIndex === -1) break;
+        const nextDelimiter = findNextDelimiter(text, searchIndex);
+        if (!nextDelimiter) break;
 
-        const delimiter = text.startsWith("$$", openingIndex) ? "$$" : "$";
-        const contentStart = openingIndex + delimiter.length;
-        const closingIndex = findClosingDelimiter(text, contentStart, delimiter, delimiter === "$$");
+        const { index: openingIndex, delimiter } = nextDelimiter;
+        const contentStart = openingIndex + delimiter.open.length;
+        const closingIndex = findClosingDelimiter(text, contentStart, delimiter);
 
         if (closingIndex === -1) {
             searchIndex = contentStart;
@@ -134,7 +148,7 @@ function tokenizeMath(text: string): MathSegment[] | null {
         }
 
         const tex = text.slice(contentStart, closingIndex);
-        if (!tex.trim() || (delimiter === "$" && tex.includes("\n"))) {
+        if (!tex.trim() || (!delimiter.allowNewlines && tex.includes("\n"))) {
             searchIndex = contentStart;
             continue;
         }
@@ -149,12 +163,12 @@ function tokenizeMath(text: string): MathSegment[] | null {
         foundMath = true;
         segments.push({
             type: "math",
-            display: delimiter === "$$",
-            raw: text.slice(openingIndex, closingIndex + delimiter.length),
+            display: delimiter.display,
+            raw: text.slice(openingIndex, closingIndex + delimiter.close.length),
             tex
         });
 
-        searchIndex = closingIndex + delimiter.length;
+        searchIndex = closingIndex + delimiter.close.length;
         lastTextStart = searchIndex;
     }
 
@@ -416,8 +430,8 @@ async function loadMathJax() {
                 fontCache: "local"
             },
             tex: {
-                inlineMath: [["$", "$"]],
-                displayMath: [["$$", "$$"]],
+                inlineMath: [["$", "$"], ["\\(", "\\)"]],
+                displayMath: [["$$", "$$"], ["\\[", "\\]"]],
                 processEscapes: true
             },
             output: {
