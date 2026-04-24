@@ -20,11 +20,13 @@ type ParserRuleReact = (node: Record<string, any>, output: unknown, state: Recor
 type MathSegment =
     | { type: "text"; text: string; }
     | { type: "math"; display: boolean; raw: string; tex: string; };
+type DelimiterMode = "tex" | "latex" | "both";
 type MathDelimiter = {
     open: "$" | "$$" | "\\(" | "\\[";
     close: "$" | "$$" | "\\)" | "\\]";
     allowNewlines: boolean;
     display: boolean;
+    mode: DelimiterMode;
 };
 type MathJaxGlobal = {
     startup?: {
@@ -59,24 +61,41 @@ const svgMarkupCache = new Map<string, Promise<string | null>>();
 let mathJaxLoadPromise: Promise<MathJaxRuntime | null> | null = null;
 let mathJaxScriptFailed = false;
 const MATH_DELIMITERS: MathDelimiter[] = [
-    { open: "$$", close: "$$", allowNewlines: true, display: true },
-    { open: "$", close: "$", allowNewlines: false, display: false },
-    { open: "\\[", close: "\\]", allowNewlines: true, display: true },
-    { open: "\\(", close: "\\)", allowNewlines: false, display: false }
+    { open: "$$", close: "$$", allowNewlines: true, display: true, mode: "tex" },
+    { open: "$", close: "$", allowNewlines: false, display: false, mode: "tex" },
+    { open: "\\[", close: "\\]", allowNewlines: true, display: true, mode: "latex" },
+    { open: "\\(", close: "\\)", allowNewlines: false, display: false, mode: "latex" }
 ];
 
 const settings = definePluginSettings({
     requireCodeBlocks: {
         type: OptionType.BOOLEAN,
-        description: "Only render math when $...$ or $$...$$ is wrapped in inline or fenced code blocks.",
+        description: "Only render math appearing in inline or fenced code blocks.",
         default: true,
         onChange: rerenderVisibleMessages
+    },
+    delimiters: {
+        type: OptionType.SELECT,
+        description: "Which math delimiters to detect in messages.",
+        options: [
+            { label: "Both", value: "both", default: true },
+            { label: "TeX style ($...$, $$...$$)", value: "tex" },
+            { label: "LaTeX style (\\(...\\), \\[...\\])", value: "latex" }
+        ],
+        onChange: rerenderVisibleMessages
     }
-    // TODO: choose delimiters? ( include $, $$, \(, \[ )
 });
 
+function getActiveMathDelimiters() {
+    const mode = settings.store.delimiters as DelimiterMode;
+
+    return mode === "both"
+        ? MATH_DELIMITERS
+        : MATH_DELIMITERS.filter(delimiter => delimiter.mode === mode);
+}
+
 function hasPotentialMathDelimiter(text: string) {
-    return MATH_DELIMITERS.some(delimiter => text.includes(delimiter.open));
+    return getActiveMathDelimiters().some(delimiter => text.includes(delimiter.open));
 }
 
 function rerenderVisibleMessages() {

@@ -19,3 +19,4 @@ Custom plugins in Vencord require building from source. See Vencord's [Installin
 ## Settings
 
 - Require Code Blocks: Only render math when delimiters are inside an inline or fenced code block.
+- Delimiters: Which math delimiters to detect in messages (TeX / LaTeX / both \[default])
