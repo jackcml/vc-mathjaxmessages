@@ -51,6 +51,7 @@ const originalCodeRuleReacts = new Map<ParserCodeRuleName, ParserRuleReact>();
 const svgMarkupCache = new Map<string, Promise<string | null>>();
 
 let mathJaxLoadPromise: Promise<MathJaxRuntime | null> | null = null;
+let mathJaxScriptFailed = false;
 
 const settings = definePluginSettings({
     requireCodeBlocks: {
@@ -427,7 +428,7 @@ async function loadMathJax() {
         };
 
         const existingScript = document.getElementById(MATHJAX_SCRIPT_ID) as HTMLScriptElement | null;
-        const script = existingScript ?? document.createElement("script");
+        let script = existingScript ?? document.createElement("script");
 
         const finish = async () => {
             const mathJax = window.MathJax;
@@ -440,6 +441,7 @@ async function loadMathJax() {
             try {
                 await mathJax.startup?.promise;
                 mathJaxLoadPromise = null;
+                mathJaxScriptFailed = false;
                 resolve(mathJax as MathJaxRuntime);
             } catch {
                 mathJaxLoadPromise = null;
@@ -453,12 +455,18 @@ async function loadMathJax() {
                 return;
             }
 
-            existingScript.addEventListener("load", () => void finish(), { once: true });
-            existingScript.addEventListener("error", () => {
-                mathJaxLoadPromise = null;
-                resolve(null);
-            }, { once: true });
-            return;
+            if (mathJaxScriptFailed) {
+                existingScript.remove();
+                script = document.createElement("script");
+            } else {
+                existingScript.addEventListener("load", () => void finish(), { once: true });
+                existingScript.addEventListener("error", () => {
+                    mathJaxLoadPromise = null;
+                    mathJaxScriptFailed = true;
+                    resolve(null);
+                }, { once: true });
+                return;
+            }
         }
 
         script.id = MATHJAX_SCRIPT_ID;
@@ -467,6 +475,7 @@ async function loadMathJax() {
         script.addEventListener("load", () => void finish(), { once: true });
         script.addEventListener("error", () => {
             mathJaxLoadPromise = null;
+            mathJaxScriptFailed = true;
             resolve(null);
         }, { once: true });
 
