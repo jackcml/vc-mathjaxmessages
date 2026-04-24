@@ -393,12 +393,12 @@ function restoreParserMethods() {
 }
 
 async function loadMathJax() {
-    if (window.MathJax?.tex2svgPromise) {
-        return window.MathJax as MathJaxRuntime;
-    }
-
     if (mathJaxLoadPromise) {
         return mathJaxLoadPromise;
+    }
+
+    if (window.MathJax?.tex2svgPromise) {
+        return window.MathJax as MathJaxRuntime;
     }
 
     mathJaxLoadPromise = new Promise(resolve => {
@@ -439,6 +439,7 @@ async function loadMathJax() {
 
             try {
                 await mathJax.startup?.promise;
+                mathJaxLoadPromise = null;
                 resolve(mathJax as MathJaxRuntime);
             } catch {
                 mathJaxLoadPromise = null;
