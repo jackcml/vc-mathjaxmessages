@@ -6,8 +6,8 @@
 
 ## What it does
 
-- Renders inline math (wrapped in `$...$`)
-- Renders display math (wrapped in `$$...$$`)
+- Renders inline math (wrapped in `$...$` or `\(...\)`)
+- Renders display math (wrapped in `$$...$$` or `\[...\]`)
 - Optionally require delimiters to appear inside code blocks
 - Leaves original message untouched when parsing or rendering fails
 
