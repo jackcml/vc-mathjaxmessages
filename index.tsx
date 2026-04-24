@@ -75,6 +75,10 @@ const settings = definePluginSettings({
     // TODO: choose delimiters? ( include $, $$, \(, \[ )
 });
 
+function hasPotentialMathDelimiter(text: string) {
+    return MATH_DELIMITERS.some(delimiter => text.includes(delimiter.open));
+}
+
 function rerenderVisibleMessages() {
     const channelId = SelectedChannelStore.getChannelId();
     if (!channelId) return;
@@ -361,7 +365,7 @@ function wrapParserMethod(methodName: ParserMethodName) {
 
     Parser[methodName] = ((content: string, inline?: boolean, state?: Record<string, any>) => {
         const parsed = originalMethod.call(Parser, content, inline, state);
-        if (!content.includes("$")) {
+        if (!hasPotentialMathDelimiter(content)) {
             return parsed;
         }
 
